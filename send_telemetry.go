@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bytes"
+	"crypto/tls"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
 
+	MQTT "github.com/eclipse/paho.mqtt.golang"
 	"github.com/goccy/go-yaml"
 	"github.com/tidwall/sjson"
 )
@@ -22,26 +22,41 @@ type Config struct {
 }
 
 func task(c Config) {
-	url := c.Server + "/api/v1/" + c.Token + "/telemetry"
+	url := `ssl://` + c.Server + `:8883`
 	fmt.Println("URL:>", url)
+
+	opts := MQTT.NewClientOptions()
+	opts.AddBroker(url)
+	opts.SetClientID("")
+	opts.SetUsername(c.Token)
+	opts.SetPassword("")
+	opts.SetCleanSession(false)
+	opts.SetTLSConfig(&tls.Config{
+		ClientAuth:         tls.NoClientCert,
+		ClientCAs:          nil,
+		InsecureSkipVerify: false})
+	client := MQTT.NewClient(opts)
+
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+	fmt.Println("Simulator Publisher Started")
+
 	for range time.Tick(time.Second * 1) {
 		var ts = time.Now().UnixMilli()
-		var jsonStr []byte
+		var jsonStr string
 		if c.TS {
-			jsonStr = []byte(`{"ts": ` + strconv.FormatInt(ts, 10) + `, "values": ` + c.Message + `}`)
+			jsonStr = `{"ts": ` + strconv.FormatInt(ts, 10) + `, "values": ` + c.Message + `}`
 		} else {
 			value, _ := sjson.Set(c.Message, "ts", ts)
-			jsonStr = []byte(value)
+			jsonStr = value
 		}
-		fmt.Println(bytes.NewBuffer(jsonStr))
-		resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonStr))
-
-		if err != nil {
-			panic(err)
-		}
-
-		defer resp.Body.Close()
+		fmt.Println(jsonStr)
+		token := client.Publish("v1/devices/me/telemetry", 0, false, jsonStr)
+		token.Wait()
 	}
+
+	client.Disconnect(250)
 }
 
 func main() {

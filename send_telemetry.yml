@@ -1,4 +1,4 @@
-server: https://iot.demo.com
+server: iot.demo.com
 # device acces totken, get from thingsboard device
 access_token: 
 # in hours
